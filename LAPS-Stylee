@@ -1,4 +1,13 @@
-#!/bin/sh
+#!/bin/bash
+#
+###############################################################################################################################################
+#
+# ABOUT THIS PROGRAM
+#
+#   This Script is designed for use in JAMF
+#
+#   - This script will randomize the password of the specified user account
+#	and post the password to a LAPS Extention Attribute in JAMF Pro.
 #
 ###############################################################################################################################################
 #
@@ -8,27 +17,35 @@
 #
 #	- 13/12/2018 - Created by combining and modifying Multiple Pe-Exsting Scripts and ideas from Web Research
 #
-#   - This script will randomize the password of the specified user account and post the password to the LAPS Extention Attribute in JAMF Pro.
-#
 ###############################################################################################################################################
 #
 # DEFINE VARIABLES & READ IN PARAMETERS
 #
 ###############################################################################################################################################
 #
+# Grab the username of the user to be reset from JAMF variable #4 eg. username
 resetUser=$4
+# Grab the first part of the API URL from JAMF variable #5 eg. https://COMPANY-NAME.jamfcloud.com
 apiURL=$5
+# Grab the username for API Login from JAMF variable #6 eg. username
 apiUser=$6
+# Grab the password for API Login from JAMF variable #7 eg. password
 apiPass=$7
+# Grab the username for FileVault unlock from JAMF variable #8 eg. username
 adminUser=$8
+# Grab the password for FileVault unlock from JAMF variable #9 eg. password
 adminPass=$9
+# Grab the extension atttribute name from JAMF variable #10 eg. username's password
 ExtensionAttributeName=${10}
-#
+# Set the name of the script for later logging
 ScriptName="ZZ 21 - Management - Change Local Administrator Password and Store in JAMF (LAPS Style)"
-#
+# Place " quotation marks around extension attribute name in the variable
 extAttName=$(echo "\"${ExtensionAttributeName}"\")
+# Grab UUID of machine
 udid=$(/usr/sbin/system_profiler SPHardwareDataType | /usr/bin/awk '/Hardware UUID:/ { print $3 }')
+# Set path the JAMF Binary - Depends on version being run
 jamf_binary="/usr/local/bin/jamf"
+
 FVstatus=$(fdesetup status)
 #
 newPass=$(openssl rand -base64 10 | tr -d OoIi1lLS | head -c12;echo)
