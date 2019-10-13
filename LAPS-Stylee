@@ -13,9 +13,12 @@
 #
 # HISTORY
 #
-#	Version: 1.0 - 13/12/2018
+#	Version: 1.1 - 13/10/2019
 #
-#	- 13/12/2018 - Created by combining and modifying Multiple Pe-Exsting Scripts and ideas from Web Research
+#	- 13/12/2018 - V1.0 - Created by Headbolt
+#
+#	- 13/10/2019 - V1.1 - Updated by Headbolt
+#				More comprehensive error checking and notation
 #
 ###############################################################################################################################################
 #
@@ -45,9 +48,9 @@ extAttName=$(echo "\"${ExtensionAttributeName}"\")
 udid=$(/usr/sbin/system_profiler SPHardwareDataType | /usr/bin/awk '/Hardware UUID:/ { print $3 }')
 # Set path the JAMF Binary - Depends on version being run
 jamf_binary="/usr/local/bin/jamf"
-
+# Grab the Current FileVault Status
 FVstatus=$(fdesetup status)
-#
+# Generate a random 12 character complex password, how this is works is explained below.
 newPass=$(openssl rand -base64 10 | tr -d OoIi1lLS | head -c12;echo)
 #
 ###############################################################################################################################################
@@ -63,7 +66,6 @@ newPass=$(openssl rand -base64 10 | tr -d OoIi1lLS | head -c12;echo)
 #             prints the first 12 characters  ──────┘
 #             of the randomly generated string
 #
-#
 ###############################################################################################################################################
 #
 # SCRIPT CONTENTS - DO NOT MODIFY BELOW THIS LINE
@@ -78,57 +80,64 @@ newPass=$(openssl rand -base64 10 | tr -d OoIi1lLS | head -c12;echo)
 #
 ParameterCheck(){
 #
-echo "Checking parameters."
+/bin/echo "Checking parameters."
 #
 #
 # Outputting a Blank Line for Reporting Purposes
-echo
+/bin/echo
 #
-# Verify parameters are present
+# Verify all parameters are present
 #
 if [ "$resetUser" == "" ]
 	then
-	    echo "Error:  The parameter 'Target User' is blank.  Please specify a user to reset."
+	    /bin/echo "Error:  The parameter 'Target User' is blank.  Please specify a user to reset."
         ScriptEnd
         exit 1
 fi
 #
 if [ "$apiURL" == "" ]
 	then
-	    echo "Error:  The parameter 'API URL' is blank.  Please specify a URL."
+	    /bin/echo "Error:  The parameter 'API URL' is blank.  Please specify a URL."
 		ScriptEnd
         exit 1
 fi
 #
 if [ "$apiUser" == "" ]
 	then
-	    echo "Error:  The parameter 'API Username' is blank.  Please specify a user."
+	    /bin/echo "Error:  The parameter 'API Username' is blank.  Please specify a user."
 	    ScriptEnd
         exit 1
 fi
 #
 if [ "$apiPass" == "" ]
 	then
-	    echo "Error:  The parameter 'API Password' is blank.  Please specify a password."
+	    /bin/echo "Error:  The parameter 'API Password' is blank.  Please specify a password."
 	    ScriptEnd
         exit 1
 fi
 #
 if [ "$adminUser" == "" ]
 	then
-	    echo "Error:  The parameter 'FileVault Admin User' is blank.  Please specify a user."
+	    /bin/echo "Error:  The parameter 'FileVault Admin User' is blank.  Please specify a user."
 	    ScriptEnd
         exit 1
 fi
 #
 if [ "$adminPass" == "" ]
 	then
-	    echo "Error:  The parameter 'FileVault Admin Password' is blank.  Please specify a password."
+	    /bin/echo "Error:  The parameter 'FileVault Admin Password' is blank.  Please specify a password."
 	    ScriptEnd
         exit 1
 fi
 #
-echo Parameters Verified.
+if [ "$extAttName" == "" ]
+	then
+	    /bin/echo "Error:  The parameter 'Extension Attribute Name' is blank.  Please specify an Extension Attribute Name."
+	    ScriptEnd
+        exit 1
+fi
+#
+/bin/echo Parameters Verified.
 #
 }
 #
@@ -337,13 +346,13 @@ fi
 SectionEnd(){
 #
 # Outputting a Blank Line for Reporting Purposes
-echo
+/bin/echo
 #
 # Outputting a Dotted Line for Reporting Purposes
-echo  -----------------------------------------------
+/bin/echo  -----------------------------------------------
 #
 # Outputting a Blank Line for Reporting Purposes
-echo
+/bin/echo
 #
 }
 #
@@ -354,18 +363,18 @@ echo
 ScriptEnd(){
 #
 # Outputting a Blank Line for Reporting Purposes
-echo
+#/bin/echo
 #
-Echo Ending Script '"'$ScriptName'"'
+/bin/echo Ending Script '"'$ScriptName'"'
 #
 # Outputting a Blank Line for Reporting Purposes
-echo
+/bin/echo
 #
 # Outputting a Dotted Line for Reporting Purposes
-echo  -----------------------------------------------
+/bin/echo  -----------------------------------------------
 #
 # Outputting a Blank Line for Reporting Purposes
-echo
+/bin/echo
 #
 }
 #
