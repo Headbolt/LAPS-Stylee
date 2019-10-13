@@ -41,7 +41,7 @@ adminPass=$9
 # Grab the extension atttribute name from JAMF variable #10 eg. username's password
 ExtensionAttributeName=${10}
 # Set the name of the script for later logging
-ScriptName="ZZ 21 - Management - Change Local Administrator Password and Store in JAMF (LAPS Style)"
+ScriptName="append prefix here as needed - Change Local Administrator Password and Store in JAMF (LAPS Style)"
 # Place " quotation marks around extension attribute name in the variable
 extAttName=$(echo "\"${ExtensionAttributeName}"\")
 # Grab UUID of machine
