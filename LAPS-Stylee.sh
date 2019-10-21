@@ -40,6 +40,15 @@ adminUser=$8
 adminPass=$9
 # Grab the extension atttribute name from JAMF variable #10 eg. username's password
 ExtensionAttributeName=${10}
+#
+# Set the Trigger Name of your Policy to set the JAMF Management Account to a Known Password incase
+# it is used for the Admin User from Variable #8 eg. JAMF-NonComplex
+NonCOMP="JAMF-NonComplex"
+#
+# Set the Trigger Name of your Policy to set the JAMF Management Account to an unknown complex Password incase
+# it is used for the Admin User from Variable #9 eg. JAMF-Complex
+COMP="JAMF-Complex"
+#
 # Set the name of the script for later logging
 ScriptName="append prefix here as needed - Change Local Administrator Password and Store in JAMF (LAPS Style)"
 # Place " quotation marks around extension attribute name in the variable
@@ -209,7 +218,7 @@ if [ "$adminUser" == "JAMF" ]
 		/bin/echo "JAMF Management Account being used for this process"
 		/bin/echo "JAMF Password needs to be Reset to a Known Value."
 		/bin/echo
-		sudo $jamf_binary policy -trigger JAMF-NonComplex
+		sudo $jamf_binary policy -trigger $NonCOMP
 		#
 		SectionEnd
 fi
@@ -294,7 +303,7 @@ if [ "$passwdB" == "" ]
 				/bin/echo "JAMF Management Account was used for this process"
 				/bin/echo "JAMF Password needs to be Reset to an unknown Complex Value."
 				/bin/echo
-				sudo $jamf_binary policy -trigger JAMF-Complex
+				sudo $jamf_binary policy -trigger $COMP
 		fi
 	/bin/echo
         #        
@@ -408,7 +417,7 @@ if [ "$adminUser" == "JAMF" ]
 		/bin/echo "JAMF Management Account was used for this process"
 		/bin/echo "JAMF Password needs to be Reset to an unknown Complex Value."
 		/bin/echo
-		sudo $jamf_binary policy -trigger JAMF-Complex
+		sudo $jamf_binary policy -trigger $COMP
 		#
 		SectionEnd
 fi
