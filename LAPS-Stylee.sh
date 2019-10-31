@@ -393,6 +393,7 @@ ScriptEnd(){
 #
 # Outputting a Blank Line for Reporting Purposes
 /bin/echo
+SectionEnd
 #
 ParameterCheck
 SectionEnd
