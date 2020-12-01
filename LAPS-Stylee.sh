@@ -4,6 +4,9 @@
 #
 # ABOUT THIS PROGRAM
 #
+#	LAPS-Stylee.sh
+#	https://github.com/Headbolt/LAPS-Stylee
+#
 #   This Script is designed for use in JAMF
 #
 #   - This script will randomize the password of the specified user account
