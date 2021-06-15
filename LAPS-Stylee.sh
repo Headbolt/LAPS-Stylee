@@ -24,7 +24,8 @@
 #				More comprehensive error checking and notation
 #
 #	- 15/06/2021 - V1.2 - Updated by Headbolt
-#				Updated to deal with syntax issues in Big Sur
+#				Updated to deal issues in Big Sur. Big Sur updated from perl/xpath 5.18 to perl/xpath 5.28. This introduced syntax errors
+#				in xpath for Big Sur, so some logic was added around the os Version and a variable to deal with the eventualities.
 #
 ###############################################################################################################################################
 #
