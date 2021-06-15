@@ -16,12 +16,15 @@
 #
 # HISTORY
 #
-#	Version: 1.1 - 13/10/2019
+#	Version: 1.2 - 15/06/2021
 #
 #	- 13/12/2018 - V1.0 - Created by Headbolt
 #
 #	- 13/10/2019 - V1.1 - Updated by Headbolt
 #				More comprehensive error checking and notation
+#
+#	- 15/06/2021 - V1.2 - Updated by Headbolt
+#				Updated to deal with syntax issues in Big Sur
 #
 ###############################################################################################################################################
 #
@@ -64,6 +67,10 @@ jamf_binary="/usr/local/bin/jamf"
 FVstatus=$(fdesetup status)
 # Generate a random 12 character complex password, how this is works is explained below.
 newPass=$(openssl rand -base64 10 | tr -d OoIi1lLS | head -c12;echo)
+#
+osMajor=$( /usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $1}' )
+osMinor=$( /usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $2}' )
+osPatch=$( /usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $3}' )
 #
 ###############################################################################################################################################
 #
@@ -175,6 +182,36 @@ fi
 #
 ###############################################################################################################################################
 #
+# Check If User OS is Greater than High Sierra
+# and therefore Password needs setting again as the user to update FileVault
+#
+CheckOS (){
+#
+osHSplus="" # Ensuring Variable is Blank
+/bin/echo 'Checking OS Version'
+/bin/echo # Outputting a Blank Line for Reporting Purposes
+/bin/echo 'MacOS Version is' $osMajor.$osMinor.$osPatch
+#
+if [[ "${osMajor}" -le 10 ]]
+	then
+		XPsyntax="" # If OS is Catalina or older, then we are using perl/xpath 5.18 in which case xpath needs no addition syntax
+		if [[ "${osMinor}" -ge 13 ]]
+			then
+				osHSplus=YES
+				/bin/echo # Outputting a Blank Line for Reporting Purposes
+				/bin/echo 'MacOS Version is "High Sierra" or Higher'
+		fi
+	else
+		osHSplus=YES
+        XPsyntax="-e " # If OS is Big-Sur or newer, then we are using perl/xpath 5.28 in which case xpath needs addition syntax
+		/bin/echo # Outputting a Blank Line for Reporting Purposes
+		/bin/echo 'MacOS Version is "High Sierra" or Higher'
+fi
+#
+}
+#
+###############################################################################################################################################
+#
 # Verify the current User Password in JAMF LAPS
 #
 CheckOldPassword (){
@@ -183,7 +220,7 @@ CheckOldPassword (){
 #
 xmlString="<?xml version=\"1.0\" encoding=\"UTF-8\"?><computer><extension_attributes><extension_attribute><name>$ExtensionAttributeName</name><value>$newPass</value></extension_attribute></extension_attributes></computer>"
 #
-oldPass=$(curl -s -f -u $apiUser:$apiPass -H "Accept: application/xml" $apiURL/JSSResource/computers/udid/$udid/subset/extension_attributes | xpath "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
+oldPass=$(curl -s -f -u $apiUser:$apiPass -H "Accept: application/xml" $apiURL/JSSResource/computers/udid/$udid/subset/extension_attributes | xpath $XPsyntax "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
 #
 if [ "$oldPass" == "" ]
 	then
@@ -229,7 +266,8 @@ fi
 if [ "$oldPass" == "" ]
 	then
 		/bin/echo "Current password not available, proceeding with forced update."
-		$jamf_binary resetPassword -username $resetUser -password $newPass
+#		$jamf_binary resetPassword -username $resetUser -password $newPass
+        sysadminctl -adminUser ${adminUser} -adminPassword ${adminPass} -resetPasswordFor ${resetUser} -newPassword $newPass
 	else
 		/bin/echo "Updating password for $resetUser."
 		$jamf_binary resetPassword -updateLoginKeychain -username $resetUser -oldPassword $oldPass -password $newPass
@@ -237,8 +275,7 @@ fi
 #
 /bin/echo "New Password for User $resetUser will be $newPass"
 #
-# Outputs User Whose Keychains We Are Going To Delete
-/bin/echo Deleting Keychains for user $resetUser
+/bin/echo Deleting Keychains for user $resetUser # Outputs User Whose Keychains We Are Going To Delete
 #
 rm -f -r /Users/$resetUser/Library/Keychains
 #
@@ -258,20 +295,14 @@ if [ "$FVstatus" == "FileVault is Off." ]
 		#
 		if [ "$UserFDE" == "YES" ]
 			then
-				os_ver=$(sw_vers -productVersion)
-				IFS='.' read -r -a ver <<< "$os_ver"
-				/bin/echo OS Version = $os_ver
-				if [[ "${ver[1]}" -ge 13 ]]
+				if [[ "$osHSplus" == "YES" ]]
 					then
 						# Set it again as the user to update FileVault.
-						/bin/echo "Setting Password again as the user to update FileVault (High Sierra or Higher)."
-						#
-						/bin/echo Changing password again to ensure updating filevault and Secure Token
-						#
+						/bin/echo 'Setting Password again to update FileVault (High Sierra or Higher).'
+						/bin/echo 'Using' ${adminUser} ' as the Local FileVault Admin.'
 						sysadminctl -adminUser ${adminUser} -adminPassword ${adminPass} -resetPasswordFor ${resetUser} -newPassword $newPass 
 						#
-					elif [[ "${ver[1]}" -lt 13 ]]
-						then
+ 					else
 							# Set it again as the user to update FileVault.
 							/bin/echo "Setting Password again as the user to update FileVault (Pre High Sierra)."
 							sudo -iu ${resetUser} dscl . passwd "/Users/${resetUser}" $newPass $newPass
@@ -323,14 +354,13 @@ UpdateAPI (){
 #
 /bin/echo "Recording new password for $resetUser into LAPS."
 #
-/usr/bin/curl -s -u ${apiUser}:${apiPass} -X PUT -H "Content-Type: text/xml" -d "${xmlString}" "${apiURL}/JSSResource/computers/udid/$udid"
+/usr/bin/curl -s -u ${apiUser}:${apiPass} -X PUT -H "Content-Type: text/xml" -d "${xmlString}" "${apiURL}/JSSResource/computers/udid/$udid" 2>&1 /dev/null
 #
-sleep 5
+LAPSpass=$(curl -s -f -u $apiUser:$apiPass -H "Accept: application/xml" $apiURL/JSSResource/computers/udid/$udid/subset/extension_attributes | xpath $XPsyntax "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
 #
-LAPSpass=$(curl -s -f -u $apiUser:$apiPass -H "Accept: application/xml" $apiURL/JSSResource/computers/udid/$udid/subset/extension_attributes | xpath "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 #
-# Outputting a Blank Line for Reporting Purposes
-/bin/echo
+dscl /Local/Default -authonly $resetUser $LAPSpass
 #
 /bin/echo "Verifying LAPS password for $resetUser."
 passwdC=`dscl /Local/Default -authonly $resetUser $LAPSpass`
@@ -351,14 +381,11 @@ fi
 #
 SectionEnd(){
 #
-# Outputting a Blank Line for Reporting Purposes
-/bin/echo
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 #
-# Outputting a Dotted Line for Reporting Purposes
-/bin/echo  -----------------------------------------------
+/bin/echo  ----------------------------------------------- # Outputting a Dotted Line for Reporting Purposes
 #
-# Outputting a Blank Line for Reporting Purposes
-/bin/echo
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 #
 }
 #
@@ -368,19 +395,13 @@ SectionEnd(){
 #
 ScriptEnd(){
 #
-# Outputting a Blank Line for Reporting Purposes
-#/bin/echo
-#
 /bin/echo Ending Script '"'$ScriptName'"'
 #
-# Outputting a Blank Line for Reporting Purposes
-/bin/echo
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 #
-# Outputting a Dotted Line for Reporting Purposes
-/bin/echo  -----------------------------------------------
+/bin/echo  ----------------------------------------------- # Outputting a Dotted Line for Reporting Purposes
 #
-# Outputting a Blank Line for Reporting Purposes
-/bin/echo
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 #
 }
 #
@@ -402,6 +423,9 @@ ParameterCheck
 SectionEnd
 #
 CheckUser
+SectionEnd
+#
+CheckOS
 SectionEnd
 #
 CheckOldPassword
