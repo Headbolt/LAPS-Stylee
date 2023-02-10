@@ -12,11 +12,16 @@
 #   - This script will randomize the password of the specified user account
 #	and post the password to a LAPS Extention Attribute in JAMF Pro.
 #
+#	The API User Account for this script requires the following permissions within JAMF.
+#	Computer Extension Attributes - Read and Update
+#	Computers - Read and Update
+#	Users - Read and Update - Why this is needed is not 100% Clear, but the script fails without it.
+#
 ###############################################################################################################################################
 #
 # HISTORY
 #
-#	Version: 1.2 - 15/06/2021
+#	Version: 1.3 - 10/02/2023
 #
 #	- 13/12/2018 - V1.0 - Created by Headbolt
 #
@@ -26,6 +31,12 @@
 #	- 15/06/2021 - V1.2 - Updated by Headbolt
 #				Updated to deal issues in Big Sur. Big Sur updated from perl/xpath 5.18 to perl/xpath 5.28. This introduced syntax errors
 #				in xpath for Big Sur, so some logic was added around the os Version and a variable to deal with the eventualities.
+#
+#	- 10/02/2023 - V1.3 - Updated by Headbolt
+#				Updated to remove OS checks as older OS support is no linger needed
+#				Also the CURL commands and Auth have been updated to use Token Based Auth, this removes the requirement for
+#				"Allow Basic authentication in addition to Bearer Token authentication" in the "Allow Basic authentication for the Classic API"
+#				section of the Password Policy, to be enabled, this makes things a little more secure.
 #
 ###############################################################################################################################################
 #
@@ -56,22 +67,16 @@ NonCOMP="JAMF-NonComplex"
 # it is used for the Admin User from Variable #9 eg. JAMF-Complex
 COMP="JAMF-Complex"
 #
-# Set the name of the script for later logging
-ScriptName="append prefix here as needed - Change Local Administrator Password and Store in JAMF (LAPS Style)"
-# Place " quotation marks around extension attribute name in the variable
-extAttName=$(echo "\"${ExtensionAttributeName}"\")
-# Grab UUID of machine
-udid=$(/usr/sbin/system_profiler SPHardwareDataType | /usr/bin/awk '/Hardware UUID:/ { print $3 }')
-# Set path the JAMF Binary - Depends on version being run
-jamf_binary="/usr/local/bin/jamf"
-# Grab the Current FileVault Status
-FVstatus=$(fdesetup status)
+ScriptName="MacOS | Change Local Password and Store in JAMF (LAPS Style)" # Set the name of the script for later logging
+extAttName=$(echo "\"${ExtensionAttributeName}"\") # Place " quotation marks around extension attribute name in the variable
+udid=$(/usr/sbin/system_profiler SPHardwareDataType | /usr/bin/awk '/Hardware UUID:/ { print $3 }') # Grab UUID of machine
+jamf_binary="/usr/local/bin/jamf" # Set path the JAMF Binary - Depends on version being run
+FVstatus=$(fdesetup status) # Grab the Current FileVault Status
+ExitCode=0 # Set Initial ExitCode
 # Generate a random 12 character complex password, how this is works is explained below.
 newPass=$(openssl rand -base64 10 | tr -d OoIi1lLS | head -c12;echo)
 #
-osMajor=$( /usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $1}' )
-osMinor=$( /usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $2}' )
-osPatch=$( /usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $3}' )
+xmlString="<?xml version=\"1.0\" encoding=\"UTF-8\"?><computer><extension_attributes><extension_attribute><name>$ExtensionAttributeName</name><value>$newPass</value></extension_attribute></extension_attributes></computer>"
 #
 ###############################################################################################################################################
 #
@@ -100,62 +105,60 @@ osPatch=$( /usr/bin/sw_vers -productVersion | /usr/bin/awk -F. '{print $3}' )
 #
 ParameterCheck(){
 #
-/bin/echo "Checking parameters."
-# Outputting a Blank Line for Reporting Purposes
-/bin/echo
+/bin/echo 'Checking parameters.'
 #
 # Verify all parameters are present
 #
 if [ "$resetUser" == "" ]
 	then
 	    /bin/echo "Error:  The parameter 'Target User' is blank.  Please specify a user to reset."
-        ScriptEnd
-        exit 1
+		ExitCode=1
+		ScriptEnd
 fi
 #
 if [ "$apiURL" == "" ]
 	then
 	    /bin/echo "Error:  The parameter 'API URL' is blank.  Please specify a URL."
+		ExitCode=1
 		ScriptEnd
-        exit 1
 fi
 #
 if [ "$apiUser" == "" ]
 	then
 	    /bin/echo "Error:  The parameter 'API Username' is blank.  Please specify a user."
-	    ScriptEnd
-        exit 1
+		ExitCode=1
+		ScriptEnd
 fi
 #
 if [ "$apiPass" == "" ]
 	then
 	    /bin/echo "Error:  The parameter 'API Password' is blank.  Please specify a password."
-	    ScriptEnd
-        exit 1
+		ExitCode=1
+		ScriptEnd
 fi
 #
 if [ "$adminUser" == "" ]
 	then
-	    /bin/echo "Error:  The parameter 'FileVault Admin User' is blank.  Please specify a user."
-	    ScriptEnd
-        exit 1
+		/bin/echo "Error:  The parameter 'FileVault Admin User' is blank.  Please specify a user."
+		ExitCode=1
+		ScriptEnd
 fi
 #
 if [ "$adminPass" == "" ]
 	then
-	    /bin/echo "Error:  The parameter 'FileVault Admin Password' is blank.  Please specify a password."
-	    ScriptEnd
-        exit 1
+		/bin/echo "Error:  The parameter 'FileVault Admin Password' is blank.  Please specify a password."
+		ExitCode=1
+		ScriptEnd
 fi
 #
 if [ "$extAttName" == "" ]
 	then
-	    /bin/echo "Error:  The parameter 'Extension Attribute Name' is blank.  Please specify an Extension Attribute Name."
-	    ScriptEnd
-        exit 1
+		/bin/echo "Error:  The parameter 'Extension Attribute Name' is blank.  Please specify an Extension Attribute Name."
+		ExitCode=1
+		ScriptEnd
 fi
 #
-/bin/echo Parameters Verified.
+/bin/echo 'Parameters Verified.'
 #
 }
 #
@@ -165,49 +168,31 @@ fi
 #
 CheckUser (){
 #
-/bin/echo Checking If User $resetUser Exists Locally
+/bin/echo "Checking If User $resetUser Exists Locally"
 #
-# Verify resetUser is a local user on the computer
-checkUser=`dseditgroup -o checkmember -m $resetUser localaccounts | awk '{ print $1 }'`
+checkUser=`dseditgroup -o checkmember -m $resetUser localaccounts | awk '{ print $1 }'` # Verify resetUser is a local user on the computer
 #
 if [[ "$checkUser" = "yes" ]]
 	then
-	    /bin/echo "$resetUser is a local user on the Computer"
+		/bin/echo "$resetUser is a local user on the Computer"
 	else
-	    /bin/echo "Error: $checkUser is not a local user on the Computer!"
-        ScriptEnd
-	    exit 1
+		/bin/echo "Error: $checkUser is not a local user on the Computer!"
+		ExitCode=1
+		ScriptEnd
 fi
 #
 }
 #
 ###############################################################################################################################################
 #
-# Check If User OS is Greater than High Sierra
-# and therefore Password needs setting again as the user to update FileVault
+# Auth Token Function
 #
-CheckOS (){
+AuthToken (){
 #
-osHSplus="" # Ensuring Variable is Blank
-/bin/echo 'Checking OS Version'
-/bin/echo # Outputting a Blank Line for Reporting Purposes
-/bin/echo 'MacOS Version is' $osMajor.$osMinor.$osPatch
-#
-if [[ "${osMajor}" -le 10 ]]
-	then
-		XPsyntax="" # If OS is Catalina or older, then we are using perl/xpath 5.18 in which case xpath needs no addition syntax
-		if [[ "${osMinor}" -ge 13 ]]
-			then
-				osHSplus=YES
-				/bin/echo # Outputting a Blank Line for Reporting Purposes
-				/bin/echo 'MacOS Version is "High Sierra" or Higher'
-		fi
-	else
-		osHSplus=YES
-        XPsyntax="-e " # If OS is Big-Sur or newer, then we are using perl/xpath 5.28 in which case xpath needs addition syntax
-		/bin/echo # Outputting a Blank Line for Reporting Purposes
-		/bin/echo 'MacOS Version is "High Sierra" or Higher'
-fi
+/bin/echo 'Getting Athentication Token from JAMF'
+rawtoken=$(curl -s -u ${apiUser}:${apiPass} -X POST "${apiURL}/uapi/auth/tokens" | grep token) # This Authenticates against the JAMF API with the Provided details and obtains an Authentication Token
+rawtoken=${rawtoken%?};
+token=$(echo $rawtoken | awk '{print$3}' | cut -d \" -f2)
 #
 }
 #
@@ -217,11 +202,8 @@ fi
 #
 CheckOldPassword (){
 #
-/bin/echo Grabbing Current Password From JAMF API
-#
-xmlString="<?xml version=\"1.0\" encoding=\"UTF-8\"?><computer><extension_attributes><extension_attribute><name>$ExtensionAttributeName</name><value>$newPass</value></extension_attribute></extension_attributes></computer>"
-#
-oldPass=$(curl -s -f -u $apiUser:$apiPass -H "Accept: application/xml" $apiURL/JSSResource/computers/udid/$udid/subset/extension_attributes | xpath $XPsyntax "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
+/bin/echo 'Grabbing Current Password From JAMF API'
+oldPass=$(curl -s -X GET "${apiURL}/JSSResource/computers/udid/$udid/subset/extension_attributes" -H 'Authorization: Bearer '$token'' | xpath -e "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
 #
 if [ "$oldPass" == "" ]
 	then
@@ -233,14 +215,13 @@ fi
 if [ "$oldPass" != "" ]
 	then
 		passwdA=`dscl /Local/Default -authonly $resetUser $oldPass`
-		#
 		if [ "$passwdA" == "" ]
 			then
-				/bin/echo Current Password for User $resetUser is $oldPass
+				/bin/echo "Current Password stored in LAPS for User $resetUser is $oldPass"
 				/bin/echo "Password stored in LAPS is correct for $resetUser."
 			else
 				/bin/echo "Error: Password stored in LAPS is not valid for $resetUser."
-				/bin/echo Current Password for User $resetUser is $oldPass
+				/bin/echo "Current Password stored in LAPS for User $resetUser is $oldPass"
 				oldPass=""
 		fi
 	else
@@ -275,16 +256,12 @@ if [ "$oldPass" == "" ]
 fi
 #
 /bin/echo "New Password for User $resetUser will be $newPass"
-#
 /bin/echo Deleting Keychains for user $resetUser # Outputs User Whose Keychains We Are Going To Delete
-#
 rm -f -r /Users/$resetUser/Library/Keychains
-#
 if [ "$FVstatus" == "FileVault is Off." ]
 	then
 		/bin/echo Not going to set it again as FileVault is DISABLED.
 	else
-		#
 		if [ "$(fdesetup list | grep -ic "^${resetUser},")" -eq '0' ]
 			then
 				/bin/echo User $resetUser is not FileVault Enabled
@@ -296,22 +273,12 @@ if [ "$FVstatus" == "FileVault is Off." ]
 		#
 		if [ "$UserFDE" == "YES" ]
 			then
-				if [[ "$osHSplus" == "YES" ]]
-					then
-						# Set it again as the user to update FileVault.
-						/bin/echo 'Setting Password again to update FileVault (High Sierra or Higher).'
-						/bin/echo 'Using' ${adminUser} ' as the Local FileVault Admin.'
-						sysadminctl -adminUser ${adminUser} -adminPassword ${adminPass} -resetPasswordFor ${resetUser} -newPassword $newPass 
-						#
- 					else
-							# Set it again as the user to update FileVault.
-							/bin/echo "Setting Password again as the user to update FileVault (Pre High Sierra)."
-							sudo -iu ${resetUser} dscl . passwd "/Users/${resetUser}" $newPass $newPass
-				fi
-				#
+				/bin/echo 'Setting Password again to update FileVault.' # Set it again as the user to update FileVault.
+				/bin/echo 'Using' ${adminUser} ' as the Local FileVault Admin.'
+				sysadminctl -adminUser ${adminUser} -adminPassword ${adminPass} -resetPasswordFor ${resetUser} -newPassword $newPass 
 			else    
 				# Not going to set it again as the user as account is not Enabled for FileVault.
-				/bin/echo Not going to set it again as the user as account is not Enabled for FileVault.
+				/bin/echo 'Not going to set it again as the user as account is not Enabled for FileVault.'
 		fi
 fi
 }
@@ -323,27 +290,23 @@ fi
 CheckNewPassword (){
 #
 /bin/echo "Verifying new password for $resetUser."
-#
 passwdB=`dscl /Local/Default -authonly $resetUser $newPass`
-#
 if [ "$passwdB" == "" ]
 	then
 		/bin/echo "New password for $resetUser is verified."
 	else
 		/bin/echo "Error: Password reset for $resetUser was not successful!"
-		/bin/echo
-		#
+		/bin/echo # Outputting a Blank Line for Reporting Purposes
 		if [ "$adminUser" == "JAMF" ]
 			then
 				/bin/echo "JAMF Management Account was used for this process"
 				/bin/echo "JAMF Password needs to be Reset to an unknown Complex Value."
-				/bin/echo
+				/bin/echo # Outputting a Blank Line for Reporting Purposes
 				sudo $jamf_binary policy -trigger $COMP
 		fi
-	/bin/echo
-        #        
-        ScriptEnd
-	exit 1
+		/bin/echo # Outputting a Blank Line for Reporting Purposes
+		ExitCode=1
+		ScriptEnd
 fi
 }
 #
@@ -354,25 +317,20 @@ fi
 UpdateAPI (){
 #
 /bin/echo "Recording new password for $resetUser into LAPS."
-#
-/usr/bin/curl -s -u ${apiUser}:${apiPass} -X PUT -H "Content-Type: text/xml" -d "${xmlString}" "${apiURL}/JSSResource/computers/udid/$udid" 2>&1 /dev/null
-#
-LAPSpass=$(curl -s -f -u $apiUser:$apiPass -H "Accept: application/xml" $apiURL/JSSResource/computers/udid/$udid/subset/extension_attributes | xpath $XPsyntax "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
+/usr/bin/curl -s -X PUT -H 'Authorization: Bearer '$token'' -H "Content-Type: text/xml" -d "${xmlString}" "${apiURL}/JSSResource/computers/udid/$udid" 2>&1 /dev/null
+LAPSpass=$(curl -s -f "Accept: application/xml" $apiURL/JSSResource/computers/udid/$udid/subset/extension_attributes -H 'Authorization: Bearer '$token'' | xpath -e "//extension_attribute[name=$extAttName]" 2>&1 | awk -F'<value>|</value>' '{print $2}')
 #
 /bin/echo # Outputting a Blank Line for Reporting Purposes
-#
 dscl /Local/Default -authonly $resetUser $LAPSpass
-#
 /bin/echo "Verifying LAPS password for $resetUser."
 passwdC=`dscl /Local/Default -authonly $resetUser $LAPSpass`
-#
 if [ "$passwdC" == "" ]
 	then
-		/bin/echo "LAPS password for $resetUser is verified."
+		/bin/echo "LAPS password for $resetUser is verified as is $LAPSpass"
 	else
-		/bin/echo "Error: LAPS password for $resetUser is not correct!"
+		/bin/echo "Error: LAPS password for $resetUser is not correct!! Currently it is $LAPSpass"
+		ExitCode=1
 		ScriptEnd
-		exit 1
 fi
 }
 #
@@ -383,9 +341,7 @@ fi
 SectionEnd(){
 #
 /bin/echo # Outputting a Blank Line for Reporting Purposes
-#
 /bin/echo  ----------------------------------------------- # Outputting a Dotted Line for Reporting Purposes
-#
 /bin/echo # Outputting a Blank Line for Reporting Purposes
 #
 }
@@ -397,12 +353,10 @@ SectionEnd(){
 ScriptEnd(){
 #
 /bin/echo Ending Script '"'$ScriptName'"'
-#
 /bin/echo # Outputting a Blank Line for Reporting Purposes
-#
 /bin/echo  ----------------------------------------------- # Outputting a Dotted Line for Reporting Purposes
-#
 /bin/echo # Outputting a Blank Line for Reporting Purposes
+exit $ExitCode
 #
 }
 #
@@ -416,8 +370,7 @@ ScriptEnd(){
 #
 ###############################################################################################################################################
 #
-# Outputting a Blank Line for Reporting Purposes
-/bin/echo
+/bin/echo # Outputting a Blank Line for Reporting Purposes
 SectionEnd
 #
 ParameterCheck
@@ -426,7 +379,7 @@ SectionEnd
 CheckUser
 SectionEnd
 #
-CheckOS
+AuthToken
 SectionEnd
 #
 CheckOldPassword
@@ -450,11 +403,4 @@ if [ "$adminUser" == "JAMF" ]
 		#
 		SectionEnd
 fi
-#
 ScriptEnd
-#
-exit 0
-#
-# End Processing
-#
-###############################################################################################################################################
